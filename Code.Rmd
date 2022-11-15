@@ -1,0 +1,539 @@
+---
+title: " Sentiment and Discrete Emotions on Lebanese Politics"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(latexpdf)
+```
+
+```{r}
+library(dplyr)
+library(quanteda)
+library(stopwords)
+
+```
+
+
+```{r}
+#HEZBOLLAH corpus
+library(rvest)
+library(dplyr)
+library(readr)
+
+get_speech_corpus = function(speech_link) {
+  speech_page = read_html(speech_link)
+  speech_corpus = speech_page %>% html_nodes(".p-4") %>% 
+    html_text() %>% paste(collapse = ",")
+  return(speech_corpus)
+}
+
+
+hezbollah_speeches = data.frame()
+
+for (page_result in seq(from = 1, to = 14, by = 1)) {
+  link = paste0("https://mediarelations-lb.org/section.php?id=94&page=", page_result)
+  page = read_html(link)
+  title = page %>% html_nodes(".mb-2 .height-50") %>% html_text()
+  date = page %>% html_nodes(".mb-2 .video-duration") %>% html_text()
+  speech_links = page %>% html_nodes(".mb-2 .height-50") %>%  html_attr("href") 
+  corpus = sapply(speech_links, FUN = get_speech_corpus)
+  
+  
+  hezbollah_speeches = rbind(hezbollah_speeches, data.frame(title, date, corpus, stringsAsFactors = FALSE))
+  
+  print(paste("Page", page_result))
+  
+}
+
+# overview of structure
+str(hezbollah_speeches)
+
+# save scraped dataset
+saveRDS(hezbollah_speeches, "data_hezbollah.rds")
+
+# load saved dataset
+dat_loaded <- readRDS("data_hezbollah.rds")
+
+names(dat_loaded)
+
+library(quanteda)
+
+corp <- corpus(dat_loaded, text_field = "corpus")
+```
+
+```{r}
+#AOUN corpus
+library(readxl)
+dat_loaded_Aoun <- readxl::read_excel("Michel_Aoun_Speeches_English.xlsx")
+
+corp_Aoun <- quanteda::corpus(dat_loaded_Aoun, text_field = "SPEECH CORPUS") 
+```
+
+```{r}
+library(tidyverse)
+library(rio)
+
+#dictionary ARABIC
+
+dat_raw <- rio::import("NRC-Emotion-Lexicon-v0.92-In105Languages-Nov2017Translations.xlsx")
+
+# select only Arabic and the relevant categories in a new data frame
+
+dat_arabic <- dat_raw %>% 
+    select(starts_with("Arabic"), Positive:Trust)
+
+names(dat_arabic)
+
+head(dat_arabic)
+
+nrow(dat_arabic)
+
+# now transform dictionary to "long" format
+
+dat_arabic_long <- dat_arabic %>% 
+    rename(word = `Arabic (ar)`) %>% 
+    gather(sentiment, score, -word)
+
+head(dat_arabic_long)
+
+# note: only words with a score of 1 belong to the respective category
+
+# therefore, I only "filter" terms with scores of 1
+
+dat_arabic_scored <- filter(dat_arabic_long, 
+                            score == 1)
+
+# you can check whether these scores make sense
+head(dat_arabic_scored)
+
+# get number of scored terms
+nrow(dat_arabic_scored)
+
+# remove "NO TRANSLATION" and get each term only once per category
+
+dat_arabic_scored <- filter(dat_arabic_scored,
+                            word != "NO TRANSLATION") %>% 
+    unique()
+
+nrow(dat_arabic_scored)
+
+dict_arabic <- as.dictionary(dat_arabic_scored)
+```
+
+```{r}
+dat_ENGLISH_DICT <- rio::import("NRC-Emotion-Lexicon-v0.92-In105Languages-Nov2017Translations.xlsx")
+
+# we have many languages and then the categories
+head(names(dat_ENGLISH_DICT))
+
+# select only Arabic and the relevant categories in a new data frame
+
+dat_english <- dat_ENGLISH_DICT %>% 
+    select(starts_with("English"), Positive:Trust)
+
+
+
+names(dat_english)
+
+head(dat_english)
+
+nrow(dat_english)
+
+# now transform dictionary to "long" format
+
+dat_english_long <- dat_english %>% rename(word = 'English (en)...1') %>% gather(sentiment, score, -word)
+
+head(dat_english_long)
+
+# note: only words with a score of 1 belong to the respective category
+
+# therefore, I only "filter" terms with scores of 1
+
+dat_english_scored <- filter(dat_english_long, 
+                            score == 1)
+
+# you can check whether these scores make sense
+head(dat_english_scored)
+
+# get number of scored terms
+nrow(dat_english_scored)
+
+# remove "NO TRANSLATION" and get each term only once per category
+
+dat_english_scored <- filter(dat_english_scored,
+                            word != "NO TRANSLATION") %>% 
+    unique()
+
+nrow(dat_english_scored)
+
+dict_english <- as.dictionary(dat_english_scored)
+```
+
+
+```{r}
+#checking Hezbollah specs and removing incorrectly scored words
+
+
+corp %>% tokens() %>% tokens_remove(stopwords(language = "ar", source = 'marimo')) %>% tokens_keep(pattern = dict_arabic$Positive) %>% dfm() %>% topfeatures(n = 30)
+
+corp %>% tokens() %>% tokens_remove(stopwords(language = "ar", source = 'marimo')) %>% tokens_keep(pattern = dict_arabic$Negative) %>% dfm() %>% topfeatures(n = 30)
+```
+
+
+_"أم" God should not be scored as positive. "منطقة" District should not be score negative_
+
+```{r}
+#checking Aoun specs and removing incorrectly scored words
+
+
+corp_Aoun %>% tokens() %>% tokens_remove(stopwords(language = "en", source = 'marimo')) %>% tokens_keep(pattern = dict_english$Positive) %>% dfm() %>% topfeatures(n = 30)
+
+corp_Aoun %>% tokens() %>% tokens_remove(stopwords(language = "en", source = 'marimo')) %>% tokens_keep(pattern = dict_english$Negative) %>% dfm() %>% topfeatures(n = 30)
+```
+_looks good!_
+
+```{r}
+#checking Hezbollah FEAR and TRUST specs and removing incorrectly scored words
+
+corp %>% tokens() %>% tokens_remove(stopwords(language = "ar", source = 'misc')) %>% tokens_keep(pattern = dict_arabic$Fear) %>% dfm() %>% topfeatures(n = 30)
+
+corp %>% tokens() %>% tokens_remove(stopwords(language = "ar", source = 'misc')) %>% tokens_keep(pattern = dict_arabic$Trust) %>% dfm() %>% topfeatures(n = 30)
+```
+
+_"سوف" Will should not be scored as Fear. "رئيس" President should not be scored as Trust because of the resistance actor stance._
+
+```{r}
+#checking Aoun FEAR and TRUST specs and removing incorrectly scored words
+
+corp_Aoun %>% tokens() %>% tokens_remove(stopwords(language = "en", source = 'marimo')) %>% tokens(remove_punct = TRUE) %>% tokens_keep(pattern = dict_english$Fear) %>% dfm() %>% topfeatures(n = 30)
+
+corp_Aoun %>% tokens() %>% tokens_remove(stopwords(language = "en", source = 'marimo')) %>% tokens(remove_punct = TRUE) %>% tokens_keep(pattern = dict_english$Trust) %>% dfm() %>% topfeatures(n = 30)
+
+```
+_"independence" should not be scored as Trust_
+
+```{r}
+# summary of Hezbollah, PROCESSED accordingly 
+
+
+dat_with_dict <- corp %>% tokens() %>% tokens_remove(stopwords(language = "ar", source = 'misc')) %>% tokens(remove_punct = TRUE) %>% tokens_replace(pattern = "اأم",  replacement = "dontscore") %>% tokens_replace(pattern = "منطقة",  replacement = "dontscore") %>% tokens_replace(pattern = "سوف",  replacement = "dontscore") %>% tokens_replace(pattern = "رئيس",  replacement = "dontscore") %>% tokens_lookup(dictionary = dict_arabic, nested_scope = "dictionary") %>% dfm()
+
+FINAL_dict <- quanteda::convert(dat_with_dict, to = "data.frame")
+
+summary(FINAL_dict)
+
+library(knitr)
+
+kable(summary(FINAL_dict))
+
+Final_dict_sum <- FINAL_dict %>% group_by() %>% summarise(mean_pos = mean(positive), mean_neg = mean(negative), mean_fear = mean(fear), mean_trust = mean(trust))
+
+library(reshape2)
+FINAL_dict_split <- Final_dict_sum[c(1)]
+
+FINAL_dict_long<-melt(FINAL_dict_split)
+
+Aoun_Beirut <- ggplot(FINAL_dict_long, aes(value,fill=variable))+
+     geom_bar(stat="identity", position="dodge")
+
+print(Aoun_Beirut + scale_x_discrete((name ="Average for the Hezbollah speeches"), labels=c("")))
+```
+
+```{r}
+#summary of Aoun, PROCESSED as well
+
+dat_with_dict_Aoun <- corp_Aoun %>% tokens() %>% tokens_remove(stopwords(language = "en", source = 'marimo')) %>% tokens(remove_punct = TRUE) %>% tokens_replace(pattern= "independence",  replacement = "dontscore") %>% tokens_lookup(dictionary = dict_english, nested_scope = "dictionary") %>% dfm()
+
+FINAL_dict_Aoun <- quanteda::convert(dat_with_dict_Aoun, to = "data.frame")
+
+summary(FINAL_dict_Aoun)
+
+FINAL_dict_Aoun$average_positive <- mean(FINAL_dict_Aoun$positive)
+FINAL_dict_Aoun$average_negative <- mean(FINAL_dict_Aoun$negative)
+FINAL_dict_Aoun$average_fear <- mean(FINAL_dict_Aoun$fear)
+FINAL_dict_Aoun$average_trust <- mean(FINAL_dict_Aoun$trust)
+
+library(reshape2)
+FINAL_dict_Aoun_split <- FINAL_dict_Aoun[c(1),c(1,12,13,14,15)]
+
+FINAL_dict_Aoun_long<-melt(FINAL_dict_Aoun_split)
+
+Aoun_Beirut_2 <- ggplot(FINAL_dict_Aoun_long, aes(doc_id,value,fill=variable))+
+     geom_bar(stat="identity", position="dodge")
+
+print(Aoun_Beirut_2 + scale_x_discrete((name ="Average for the Aoun speeches"), labels=c("")))
+```
+
+
+```{r}
+# Aoun -> dates for  Beirut blast 
+# Dates
+corpus_Aoun_Beirut_2020 <- corp_Aoun %>% corpus_subset(DATE = 2021-08-03, 2020-08-05)
+
+toks_Aoun_Beirut_2020 <- tokens(corpus_Aoun_Beirut_2020, remove_punct = TRUE) %>% tokens_remove(stopwords(language = "en", source = 'marimo')) %>% tokens_replace(pattern= "independence",  replacement = "dontscore")
+
+Beirut <- c("Beirut", "Blast*", "Bomb*", "attack*", "terrorist*", "Soleilmani", "Iraq", "drone strike", "Hezbollah")
+
+toks_Aoun_Beirut <- tokens_keep(toks_Aoun_Beirut_2020, pattern = phrase(Beirut), window = 10)
+
+toks_Aoun_Beirut_NRC <- tokens_lookup(toks_Aoun_Beirut, dictionary = dict_english, nested_scope = "dictionary")
+
+dfmat_Aoun_Beirut_NRC <- dfm(toks_Aoun_Beirut_NRC) 
+
+#data frame completed
+data_Aoun_Beirut_NRC <- dfmat_Aoun_Beirut_NRC %>% quanteda::convert(to = "data.frame")
+
+ggplot(data_Aoun_Beirut_NRC, aes(x = doc_id, y = fear)) + geom_col()
+
+#only keeping text 2, 4, 9, 11, 14
+library(dplyr)
+
+data_Aoun_Beirut_Final <- data_Aoun_Beirut_NRC[c(2,4,9,11,14),c(1:11)]
+
+ggplot(data_Aoun_Beirut_Final, aes(x = doc_id, y = fear)) + geom_col()
+
+# multiple variables
+
+#only keep fear, trust, negative, and positive
+#reshape first 
+
+library(reshape2)
+data_Aoun_Beirut_split <- data_Aoun_Beirut_Final[c(1:5),c(1,5,7,8,11)]
+
+data_Aoun_Beirut_long<-melt(data_Aoun_Beirut_split)
+
+Aoun_Beirut <- ggplot(data_Aoun_Beirut_long, aes(doc_id,value,fill=variable))+
+     geom_bar(stat="identity", position="dodge")
+
+print(Aoun_Beirut + scale_x_discrete((name ="speech date"), labels=c("text2" = "24/09/2021", "text4" = "03/08/21", "text9" = "23/09/2020", "text11" = "18/09/2020", "text14" = "05/08/2020")))
+
+```
+
+```{r}
+
+# Aoun -> dates for Protests Saad Hariri
+# Dates
+corpus_Aoun_Protests_2020 <- corp_Aoun %>% corpus_subset(DATE = 2021-12-27, 2019-09-17)
+
+toks_Aoun_Protests_2020 <- tokens(corpus_Aoun_Protests_2020, remove_punct = TRUE) %>% tokens_remove(stopwords(language = "en", source = 'marimo')) %>% tokens_replace(pattern= "independence",  replacement = "dontscore")
+
+Protests <- c("protest*", "Saad Hariri", "PM", "prime minister", "resign*", "withdraw*", "crisis", "anti-government*", "mass protest*", "Lebanon", "demonstration*", "chaos", "Hariri", "Beirut", "Nasrallah", "lead*")
+
+toks_Aoun_Protests <- tokens_keep(toks_Aoun_Protests_2020, pattern = phrase(Protests), window = 10)
+
+toks_Aoun_Protests_NRC <- tokens_lookup(toks_Aoun_Protests, dictionary = dict_english, nested_scope = "dictionary")
+
+dfmat_Aoun_Protests_NRC <- dfm(toks_Aoun_Protests_NRC) 
+
+#data frame completed
+data_Aoun_Protests_NRC <- dfmat_Aoun_Protests_NRC %>% quanteda::convert(to = "data.frame")
+
+#only keeping text 18, 20, 22, 23, 24
+library(dplyr)
+
+data_Aoun_Protests_Final <- data_Aoun_Protests_NRC[c(18, 20, 22, 23, 24),c(1:11)]
+
+ggplot(data_Aoun_Protests_Final, aes(x = doc_id, y = fear)) + geom_col()
+
+# multiple variables
+
+#only keep fear, trust, negative, and positive
+#reshape first 
+
+
+data_Aoun_Protests_split <- data_Aoun_Protests_Final[c(1:5),c(1,5,7,8,11)]
+
+data_Aoun_Protests_long<-melt(data_Aoun_Protests_split)
+
+
+Aoun_Protests <- ggplot(data_Aoun_Protests_long, aes(doc_id,value,fill=variable)) + geom_bar(stat="identity",position="dodge")
+
+print(Aoun_Protests + scale_x_discrete((name ="speech date"), labels=c("text18" = "06/05/2020", "text20" = "26/02/2020", "text22" = "31/10/2019", "text23" = "24/10/2019", "text24" = "31/08/2019")))
+
+```
+
+```{r}
+# Hezbollah -> dates for Protests Saad Hariri
+# Dates
+
+corpus_Hez_Protests_2020 <- corp
+
+toks_Hez_Protests_2020 <- tokens(corpus_Hez_Protests_2020, remove_punct = TRUE) %>% tokens_remove(stopwords(language = "ar", source = 'marimo')) %>% tokens_replace(pattern = "اأم",  replacement = "dontscore") %>% tokens_replace(pattern = "منطقة",  replacement = "dontscore") %>% tokens_replace(pattern = "سوف",  replacement = "dontscore") %>% tokens_replace(pattern = "رئيس",  replacement = "dontscore") 
+
+Protests <- c("protest*", "Saad Hariri", "PM", "prime minister", "resign*", "withdraw*", "crisis", "anti-government*", "mass protest*", "Lebanon", "demonstration*", "chaos", "Hariri", "Beirut", "Nasrallah", "lead*")
+
+Protests_Arab <- c("الاحتجاج *" , "سعد الحريري" , "رئيس الوزراء" , "رئيس الوزراء" , "الاستقالة *" , "الانسحاب *" , "الأزمة" , "مناهضة الحكومة *" , "الاحتجاج الجماهيري" , "لبنان" , "مظاهرة *" , "فوضى" , "الحريري" , "بيروت" ,"نصر الله" ,"قيادة *")
+
+toks_Hez_Protests <- tokens_keep(toks_Hez_Protests_2020, pattern = phrase(Protests_Arab), window = 10)
+
+toks_Hez_Protests_NRC <- tokens_lookup(toks_Hez_Protests, dictionary = dict_arabic, nested_scope = "dictionary")
+
+dfmat_Hez_Protests_NRC <- dfm(toks_Hez_Protests_NRC) 
+
+#data frame completed
+data_Hez_Protests_NRC <- dfmat_Hez_Protests_NRC %>% quanteda::convert(to = "data.frame")
+
+#only keeping text 22, 21, 20
+library(dplyr)
+
+data_Hez_Protests_Final <- data_Hez_Protests_NRC[c(22, 21, 20),c(1:11)]
+
+ggplot(data_Hez_Protests_Final, aes(x = doc_id, y = fear)) + geom_col()
+
+# multiple variables
+
+#only keep fear, trust, negative, and positive
+#reshape first 
+
+
+data_Hez_Protests_split <- data_Hez_Protests_Final[c(1:3),c(1,5,7,8,11)]
+
+data_Hez_Protests_long<-melt(data_Hez_Protests_split)
+
+
+Hez_Protests <-  ggplot(data_Hez_Protests_long, aes(doc_id,value,fill=variable)) + geom_bar(stat="identity",position="dodge")
+
+ 
+print(Hez_Protests + scale_x_discrete((name ="speech date"), labels=c("https://mediarelations-lb.org/post.php?id=15053" = "28/03/2020", "https://mediarelations-lb.org/post.php?id=15074" = "20/03/2020", "https://mediarelations-lb.org/post.php?id=15081" = "02/05/2019")))
+```
+
+
+```{r}
+# Hezbollah -> dates for Beirut bombing
+# Dates
+
+corpus_Hez_Beirut_2020 <- corp
+
+toks_Hez_Beirut_2020 <- tokens(corpus_Hez_Beirut_2020, remove_punct = TRUE) %>% tokens_remove(stopwords(language = "ar", source = 'marimo')) %>% tokens_replace(pattern = "اأم",  replacement = "dontscore") %>% tokens_replace(pattern = "منطقة",  replacement = "dontscore") %>% tokens_replace(pattern = "سوف",  replacement = "dontscore") %>% tokens_replace(pattern = "رئيس",  replacement = "dontscore") 
+
+Beirut_Arab <- c("بيروت" , "انفجار *" , "قنبلة *" , "هجوم *" , "إرهابي *" , "سليماني" , "العراق"  ,"ضربة بدون طيار" , "حزب الله")
+
+toks_Hez_Beirut <- tokens_keep(toks_Hez_Beirut_2020, pattern = phrase(Beirut_Arab), window = 10)
+
+toks_Hez_Beirut_NRC <- tokens_lookup(toks_Hez_Beirut, dictionary = dict_arabic, nested_scope = "dictionary")
+
+dfmat_Hez_Beirut_NRC <- dfm(toks_Hez_Beirut_NRC) 
+
+#data frame completed
+data_Hez_Beirut_NRC <- dfmat_Hez_Beirut_NRC %>% quanteda::convert(to = "data.frame")
+
+#only keeping text 12
+library(dplyr)
+
+data_Hez_Beirut_Final <- data_Hez_Beirut_NRC[c(12, 13, 16, 18),c(1:11)]
+
+ggplot(data_Hez_Beirut_Final, aes(x = doc_id, y = fear)) + geom_col()
+
+
+# multiple variables
+
+#only keep fear, trust, negative, and positive
+#reshape first 
+
+
+data_Hez_Beirut_split <- data_Hez_Beirut_Final[c(1:4),c(1,5,7,8,11)]
+
+data_Hez_Beirut_long<-melt(data_Hez_Beirut_split)
+
+Hez_Beirut <- ggplot(data_Hez_Beirut_long, aes(doc_id,value,fill=variable)) + geom_bar(stat="identity",position="dodge")
+
+print(Hez_Beirut + scale_x_discrete((name ="speech date"), labels=c("https://mediarelations-lb.org/post.php?id=15140" = "19/03/2021", "https://mediarelations-lb.org/post.php?id=15129" = "09/01/2021", "https://mediarelations-lb.org/post.php?id=15111" = "30/09/2020", "https://mediarelations-lb.org/post.php?id=15096" = "17/06/2020")))
+```
+
+```{r}
+#Israel Aoun collocation 
+
+toks_Aoun_Israel <- tokens(corp_Aoun, remove_punct = TRUE)
+
+Israel <- c("Israel*", "Netanyahu", "Jerusalem", "Tel Aviv", "jew*", "leader of opposition")
+
+toks_Aoun_Israel_pattern <- tokens_keep(toks_Aoun_Israel, pattern = phrase(Israel), window = 15)
+
+toks_Aoun_Israel_NRC <- tokens_lookup(toks_Aoun_Israel_pattern, dictionary = dict_english, nested_scope = "dictionary")
+
+dfmat_Aoun_Israel_NRC <- dfm(toks_Aoun_Israel_NRC) 
+
+data_Aoun_Israel_NRC <- dfmat_Aoun_Israel_NRC %>% quanteda::convert(to = "data.frame")
+
+#positive and negativre for Aoun
+ggplot(data_Aoun_Israel_NRC, aes(x = doc_id, y = positive, group = 1)) + geom_line()
+
+ggplot(data_Aoun_Israel_NRC, aes(x = doc_id, y = negative, group = 1)) + geom_line()
+
+```
+
+
+```{r}
+#Israel Hez collocation 
+
+toks_Hez_Israel <- tokens(corp, remove_punct = TRUE)
+
+Israel_arab <- c("إسرائيل *" , "نتنياهو"  ,"القدس" , "تل أبيب" , "يهودي *" , "زعيم المعارضة")
+
+toks_Hez_Israel_pattern <- tokens_keep(toks_Hez_Israel, pattern = phrase(Israel_arab), window = 15)
+
+toks_Hez_Israel_NRC <- tokens_lookup(toks_Hez_Israel_pattern, dictionary = dict_arabic, nested_scope = "dictionary")
+
+dfmat_Hez_Israel_NRC <- dfm(toks_Hez_Israel_NRC) 
+
+data_Hez_Israel_NRC <- dfmat_Hez_Israel_NRC %>% quanteda::convert(to = "data.frame")
+
+Hez_Israel_neg <- ggplot(data_Hez_Israel_NRC, aes(x = doc_id, y = negative, group = 1)) + geom_line()
+
+Hez_Israel_pos <- ggplot(data_Hez_Israel_NRC, aes(x = doc_id, y = positive, group = 1)) + geom_line()
+
+Hez_Israel_trust <- ggplot(data_Hez_Israel_NRC, aes(x = doc_id, y = trust, group = 1)) + geom_line()
+
+Hez_Israel_fear <- ggplot(data_Hez_Israel_NRC, aes(x = doc_id, y = fear, group = 1)) + geom_line()
+
+#four comparisons for Hezbollah
+print(Hez_Israel_neg + theme(axis.text.x = element_blank(), axis.ticks = element_blank()))
+
+print(Hez_Israel_pos + theme(axis.text.x = element_blank(), axis.ticks = element_blank()))
+
+print(Hez_Israel_trust + theme(axis.text.x = element_blank(), axis.ticks = element_blank()))
+
+print(Hez_Israel_fear + theme(axis.text.x = element_blank(), axis.ticks = element_blank()))
+```
+
+_blog post new graphs_
+
+
+```{r}
+# blog post new graphs
+
+library(tidyverse)
+library(ggbeeswarm)
+
+FINAL_blog_post_data <- quanteda::convert(dat_with_dict, to = "data.frame")
+
+Final_Dict_Sum <- FINAL_blog_post_data %>% summarise(mean_pos = mean(positive), mean_neg = mean(negative), mean_fear = mean(fear), mean_trust = mean(trust))
+
+Final_Dict_Sum_long <- gather(Final_Dict_Sum, emotion, measurement, mean_pos:mean_trust, factor_key=TRUE)
+
+
+
+FINAL_blog_post_data_Aoun <- quanteda::convert(dat_with_dict_Aoun, to = "data.frame")
+
+
+
+Final_Dict_Sum_long %>% ggplot(aes(y = measurement, x = proportion)) +
+  geom_boxplot() + labs(x = "Discreet Emotions", y = "Proportion")
+
+
+FINAL_blog_post_Aoun_data %>%
+  pivot_longer(anger:trust, names_to = "discreet", values_to = "proportion") %>%
+  ggplot(aes(y = proportion, x = discreet)) +
+  geom_boxplot() +
+  labs(x = "Discreet Emotions", y = "Proportion")
+
+
+
+
+```
+
+
