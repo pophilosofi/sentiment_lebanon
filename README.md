@@ -1,0 +1,5 @@
+# sentiment_lebanon 
+Sentiment and Discrete Emotion Analysis On Lebanese Politics
+
+
+This blog post is the overview of a larger research project that seeks to find out if the Lebanese political actor Hezbollah tends to use higher levels of negative sentiment throughout public speeches compared to the Lebanese president. In parallel, this study touches on whether negative emotions such as fear appear more than positive emotions such as trust during and/or after pivotal events. In order to conduct such research, we created a brand new Arabic data set from speeches found on official websites. This data then underwent an automized language analysis that filtered positive and negative sentiments on top of specific emotions. The results were unexpected and countered what Western academics anticipate in their studies. Hezbollah shows a preference to use similar communication strategies as the President of Lebanon. This type of study brings a new and innovative approach to conflict studies, especially when realized in other languages. 
